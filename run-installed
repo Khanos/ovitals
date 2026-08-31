@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+launcher_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+app_dir="$(cd -- "$(dirname -- "$launcher_path")" && pwd)"
+cd "$app_dir"
+exec python3 -m vitals "$@"

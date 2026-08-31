@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=oVitals
+GenericName=Hardware Monitor
+Comment=Monitor temperatures, clocks, voltages, and fans
+Exec=ovitals
+Icon=com.omarchy.OVitals
+Terminal=false
+Categories=System;Monitor;
+Keywords=ovitals;temperature;frequency;voltage;fan;sensor;hardware;
+StartupNotify=true
+StartupWMClass=com.omarchy.OVitals
