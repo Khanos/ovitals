@@ -36,20 +36,15 @@ class OmarchyTheme:
     def __init__(self) -> None:
         state = Path.home() / ".local/state/omarchy/current"
         self.colors_path = state / "theme/colors.toml"
-        self.name_path = state / "theme.name"
         self.provider: Gtk.CssProvider | None = None
-        self.signature: tuple[int, int] | None = None
-        self.name = "Omarchy"
+        self.signature: int | None = None
         self.colors = dict(DEFAULTS)
 
-    def _file_signature(self) -> tuple[int, int]:
-        def stamp(path: Path) -> int:
-            try:
-                return path.stat().st_mtime_ns
-            except OSError:
-                return 0
-
-        return stamp(self.colors_path), stamp(self.name_path)
+    def _file_signature(self) -> int:
+        try:
+            return self.colors_path.stat().st_mtime_ns
+        except OSError:
+            return 0
 
     def refresh(self, force: bool = False) -> bool:
         signature = self._file_signature()
@@ -62,11 +57,6 @@ class OmarchyTheme:
             colors.update({key: value for key, value in loaded.items() if isinstance(value, str)})
         except (OSError, tomllib.TOMLDecodeError):
             pass
-        try:
-            slug = self.name_path.read_text(encoding="utf-8").strip()
-            self.name = slug.replace("-", " ").title() or "Omarchy"
-        except OSError:
-            self.name = "Omarchy"
         self.colors = colors
         self._apply()
         return True
@@ -120,18 +110,8 @@ class OmarchyTheme:
   box-shadow: none;
 }}
 
-.app-mark {{
-  min-width: 28px;
-  min-height: 28px;
-  border-radius: 9px;
-  color: {c['darker_background']};
-  background: {c['accent']};
-  font-weight: 900;
-  font-family: monospace;
-}}
-
+.vital-mark {{ color: {c['accent']}; }}
 .title-label {{ font-size: 16px; font-weight: 750; }}
-.subtitle-label {{ color: {c['dark_foreground']}; font-size: 11px; }}
 .summary-strip {{ padding: 18px 20px 14px; }}
 
 .metric-card {{
@@ -154,18 +134,6 @@ class OmarchyTheme:
 .metric-frequency .metric-value {{ color: {c['cyan']}; }}
 .metric-voltage .metric-value {{ color: {c['blue']}; }}
 .metric-fan .metric-value {{ color: {c['green']}; }}
-
-.filter-bar {{ padding: 0 20px 12px; }}
-.filter-button {{
-  background: transparent;
-  color: {c['dark_foreground']};
-  border: 0;
-  border-radius: 8px;
-  box-shadow: none;
-  padding: 6px 11px;
-}}
-.filter-button:hover {{ background: alpha({c['selection']}, .55); color: {c['foreground']}; }}
-.filter-button:checked {{ background: {c['selection']}; color: {c['foreground']}; }}
 
 .table-shell {{
   margin: 0 20px 18px;
@@ -209,6 +177,4 @@ class OmarchyTheme:
   font-size: 10px;
 }}
 .live-dot {{ color: {c['green']}; font-size: 13px; }}
-.empty-state {{ color: {c['dark_foreground']}; padding: 50px; }}
-.empty-state .title {{ color: {c['foreground']}; }}
 """

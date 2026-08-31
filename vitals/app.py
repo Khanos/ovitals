@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-import socket
 import time
 
 import gi
@@ -28,6 +27,35 @@ KIND_ICONS = {
     SensorKind.VOLTAGE: "ϟ",
     SensorKind.FAN: "✣",
 }
+
+
+class VitalMark(Gtk.DrawingArea):
+    """Small theme-colored heartbeat mark for the compact header."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.set_content_width(28)
+        self.set_content_height(20)
+        self.add_css_class("vital-mark")
+        self.set_draw_func(self._draw)
+
+    def _draw(self, _area: Gtk.DrawingArea, context: object, width: int, height: int) -> None:
+        color = self.get_color()
+        context.set_source_rgba(color.red, color.green, color.blue, color.alpha)
+        context.set_line_width(2.2)
+        points = (
+            (1, height * 0.58),
+            (width * 0.22, height * 0.58),
+            (width * 0.33, height * 0.18),
+            (width * 0.48, height * 0.84),
+            (width * 0.62, height * 0.36),
+            (width * 0.72, height * 0.58),
+            (width - 1, height * 0.58),
+        )
+        context.move_to(*points[0])
+        for point in points[1:]:
+            context.line_to(*point)
+        context.stroke()
 
 
 class MetricCard(Gtk.Box):
@@ -137,16 +165,6 @@ class Section(Gtk.Box):
         self.append(row)
         return row
 
-    def apply_filter(self, kind: SensorKind | None) -> bool:
-        visible = False
-        for row in self.rows:
-            show = kind is None or row.spec.kind == kind
-            row.set_visible(show)
-            visible = visible or show
-        self.set_visible(visible)
-        return visible
-
-
 class VitalsWindow(Adw.ApplicationWindow):
     def __init__(self, application: Adw.Application) -> None:
         super().__init__(application=application, title="oVitals")
@@ -156,9 +174,7 @@ class VitalsWindow(Adw.ApplicationWindow):
         self.theme = OmarchyTheme()
         self.readings = self.manager.sample()
         self.rows: dict[str, SensorRow] = {}
-        self.sections: list[Section] = []
         self.metric_cards: dict[SensorKind, MetricCard] = {}
-        self.filter_kind: SensorKind | None = None
         self.session_started = time.monotonic()
         self.timer_id = 0
 
@@ -166,7 +182,6 @@ class VitalsWindow(Adw.ApplicationWindow):
         self.set_content(self.toast_overlay)
         self.toast_overlay.set_child(self._build_content())
         self.theme.refresh(force=True)
-        self._sync_theme_name()
         self._update(self.readings)
         self.timer_id = GLib.timeout_add(1000, self._on_tick)
 
@@ -177,7 +192,6 @@ class VitalsWindow(Adw.ApplicationWindow):
 
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         page.append(self._build_summary())
-        page.append(self._build_filters())
         page.append(self._build_table())
         page.append(self._build_footer())
         toolbar.set_content(page)
@@ -186,23 +200,14 @@ class VitalsWindow(Adw.ApplicationWindow):
     def _build_header(self) -> Adw.HeaderBar:
         header = Adw.HeaderBar()
         header.add_css_class("vitals-header")
-        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        mark = Gtk.Label(label="O")
-        mark.add_css_class("app-mark")
-        mark.set_size_request(28, 28)
-        title_box.append(mark)
-        labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        header.set_title_widget(Gtk.Box())
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_box.set_valign(Gtk.Align.CENTER)
+        title_box.append(VitalMark())
         title = Gtk.Label(label="oVitals", xalign=0)
         title.add_css_class("title-label")
-        self.subtitle = Gtk.Label(
-            label=f"{socket.gethostname()}  ·  live sensors",
-            xalign=0,
-        )
-        self.subtitle.add_css_class("subtitle-label")
-        labels.append(title)
-        labels.append(self.subtitle)
-        title_box.append(labels)
-        header.set_title_widget(title_box)
+        title_box.append(title)
+        header.pack_start(title_box)
 
         reset = Gtk.Button(icon_name="view-refresh-symbolic")
         reset.set_tooltip_text("Reset minimum and maximum values")
@@ -219,26 +224,6 @@ class VitalsWindow(Adw.ApplicationWindow):
             self.metric_cards[kind] = card
             summary.append(card)
         return summary
-
-    def _build_filters(self) -> Gtk.Widget:
-        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=3)
-        bar.add_css_class("filter-bar")
-        counts = self.manager.counts()
-        total = len(self.manager.specs)
-        previous: Gtk.ToggleButton | None = None
-        options: list[tuple[str, SensorKind | None, int]] = [("All", None, total)]
-        options.extend((KIND_LABELS[kind], kind, counts[kind]) for kind in SensorKind)
-        for label, kind, count in options:
-            button = Gtk.ToggleButton(label=f"{label}  {count}")
-            button.add_css_class("filter-button")
-            if previous is not None:
-                button.set_group(previous)
-            else:
-                button.set_active(True)
-            button.connect("toggled", self._filter_changed, kind)
-            bar.append(button)
-            previous = button
-        return bar
 
     @staticmethod
     def _column_header(label: str, xalign: float, width: int = -1) -> Gtk.Label:
@@ -261,29 +246,17 @@ class VitalsWindow(Adw.ApplicationWindow):
         header.attach(self._column_header("MAXIMUM", 1, 108), 4, 0, 1, 1)
         shell.append(header)
 
-        self.stack = Gtk.Stack()
-        self.stack.set_vexpand(True)
         scroller = Gtk.ScrolledWindow(vexpand=True)
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         contents = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         scroller.set_child(contents)
-        self.stack.add_named(scroller, "sensors")
-
-        self.empty = Adw.StatusPage(
-            icon_name="dialog-information-symbolic",
-            title="No sensors in this category",
-            description="The running kernel is not exposing this sensor type.",
-        )
-        self.empty.add_css_class("empty-state")
-        self.stack.add_named(self.empty, "empty")
-        shell.append(self.stack)
+        shell.append(scroller)
 
         grouped: dict[str, list[SensorReading]] = defaultdict(list)
         for reading in self.readings:
             grouped[reading.spec.section].append(reading)
         for section_name, readings in grouped.items():
             section = Section(section_name)
-            self.sections.append(section)
             contents.append(section)
             for reading in readings:
                 self.rows[reading.spec.sensor_id] = section.add_reading(reading)
@@ -303,22 +276,6 @@ class VitalsWindow(Adw.ApplicationWindow):
         footer.append(self.session)
         return footer
 
-    def _filter_changed(self, button: Gtk.ToggleButton, kind: SensorKind | None) -> None:
-        if not button.get_active():
-            return
-        self.filter_kind = kind
-        any_visible = any(section.apply_filter(kind) for section in self.sections)
-        self.stack.set_visible_child_name("sensors" if any_visible else "empty")
-        if not any_visible and kind is not None:
-            self.empty.set_title(f"No {KIND_LABELS[kind].lower()} available")
-            descriptions = {
-                SensorKind.TEMPERATURE: "No temperature inputs were found under Linux hwmon.",
-                SensorKind.FREQUENCY: "CPU or GPU clock-speed sensors are not available to this session.",
-                SensorKind.VOLTAGE: "Many boards require a Super I/O kernel module before voltage inputs appear.",
-                SensorKind.FAN: "Fan RPM is not currently reported by hwmon or the active GPU driver.",
-            }
-            self.empty.set_description(descriptions[kind])
-
     def _reset_stats(self, _button: Gtk.Button) -> None:
         self.manager.reset()
         self.session_started = time.monotonic()
@@ -327,16 +284,12 @@ class VitalsWindow(Adw.ApplicationWindow):
         self.toast_overlay.add_toast(Adw.Toast(title="Minimum and maximum values reset"))
 
     def _on_tick(self) -> bool:
-        if self.theme.refresh():
-            self._sync_theme_name()
+        self.theme.refresh()
         self.readings = self.manager.sample()
         self._update(self.readings)
         elapsed = int(time.monotonic() - self.session_started)
         self.session.set_label(f"Session {elapsed // 60:02d}:{elapsed % 60:02d}")
         return GLib.SOURCE_CONTINUE
-
-    def _sync_theme_name(self) -> None:
-        self.subtitle.set_label(f"{socket.gethostname()}  ·  {self.theme.name}")
 
     def _update(self, readings: list[SensorReading]) -> None:
         by_kind: dict[SensorKind, list[SensorReading]] = defaultdict(list)

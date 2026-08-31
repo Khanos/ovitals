@@ -11,7 +11,7 @@ and session **Maximum** values.
 - Temperatures, CPU/GPU clocks, voltages, and fan speeds when exposed by drivers
 - Optional NVIDIA readings through `nvidia-smi`
 - Live Omarchy palette reload from the active `colors.toml`
-- Category filters and a reset-session control
+- Always-visible grouped sensor table and a reset-session control
 - Clear empty states when the kernel does not expose a sensor class
 
 ## Clone and run
