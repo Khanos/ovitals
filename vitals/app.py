@@ -140,11 +140,14 @@ class SensorRow(Gtk.Grid):
                 f"{format_value(value, self.spec.unit)} {self.spec.unit}"
                 for value in (stats.current, stats.minimum, stats.maximum)
             )
-            if self.spec.kind == SensorKind.TEMPERATURE:
-                if stats.current >= 95:
-                    self.current.add_css_class("sensor-critical")
-                elif stats.current >= 80:
-                    self.current.add_css_class("sensor-hot")
+        # Thermal thresholds in degrees Celsius. 80 is a soft warning; 95 sits
+        # near the ~100C protection point where most CPUs begin to throttle or
+        # shut down, so it marks a critical condition.
+        if self.spec.kind == SensorKind.TEMPERATURE:
+            if stats.current >= 95:
+                self.current.add_css_class("sensor-critical")
+            elif stats.current >= 80:
+                self.current.add_css_class("sensor-hot")
         self.current.set_label(values[0])
         self.minimum.set_label(values[1])
         self.maximum.set_label(values[2])
