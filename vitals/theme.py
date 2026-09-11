@@ -112,7 +112,56 @@ class OmarchyTheme:
 
 .vital-mark {{ color: {c['accent']}; }}
 .title-label {{ font-size: 16px; font-weight: 750; }}
-.summary-strip {{ padding: 18px 20px 14px; }}
+
+.cpu-load-panel {{
+  margin: 18px 20px 0;
+  padding: 12px 14px 10px;
+  background: {c['lighter_background']};
+  border: 1px solid alpha({c['muted']}, .72);
+  border-radius: 12px;
+}}
+.cpu-load-title {{
+  color: {c['light_foreground']};
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.1px;
+}}
+.cpu-load-summary {{
+  color: {c['dark_foreground']};
+  font-family: monospace;
+  font-size: 10px;
+  font-feature-settings: "tnum";
+}}
+.cpu-load-chart {{ min-height: 70px; }}
+
+.resource-load-strip {{ padding: 10px 20px 0; }}
+.resource-load-panel {{
+  background: {c['lighter_background']};
+  border: 1px solid alpha({c['muted']}, .72);
+  border-radius: 12px;
+  padding: 11px 14px 10px;
+}}
+.resource-load-title {{
+  color: {c['light_foreground']};
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.1px;
+}}
+.resource-load-summary {{
+  color: {c['dark_foreground']};
+  font-family: monospace;
+  font-size: 10px;
+  font-feature-settings: "tnum";
+}}
+.resource-load-detail {{
+  color: {c['dark_foreground']};
+  font-family: monospace;
+  font-size: 11px;
+  font-feature-settings: "tnum";
+}}
+.resource-load-chart {{ min-height: 54px; }}
+
+.summary-strip {{ padding: 12px 20px 14px; }}
 
 .metric-card {{
   background: {c['lighter_background']};

@@ -9,9 +9,18 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from .sensors import SensorKind, SensorManager, SensorReading, format_value
+from .sensors import (
+    CpuLoadMonitor,
+    LoadReading,
+    MemoryLoadMonitor,
+    SensorKind,
+    SensorManager,
+    SensorReading,
+    VramLoadMonitor,
+    format_value,
+)
 from .theme import OmarchyTheme
 
 
@@ -56,6 +65,202 @@ class VitalMark(Gtk.DrawingArea):
         for point in points[1:]:
             context.line_to(*point)
         context.stroke()
+
+
+class CpuLoadChart(Gtk.DrawingArea):
+    """Minimal theme-colored utilization bars, one per logical CPU."""
+
+    def __init__(self, theme: OmarchyTheme) -> None:
+        super().__init__()
+        self.theme = theme
+        self.loads: tuple[float, ...] = ()
+        self.set_content_height(70)
+        self.set_hexpand(True)
+        self.add_css_class("cpu-load-chart")
+        self.set_draw_func(self._draw)
+
+    def update(self, loads: tuple[float, ...]) -> None:
+        self.loads = loads
+        self.queue_draw()
+
+    def _set_color(self, context: object, name: str, alpha: float) -> None:
+        color = Gdk.RGBA()
+        if not color.parse(self.theme.colors[name]):
+            color.parse("#7aa2f7")
+        context.set_source_rgba(color.red, color.green, color.blue, alpha)
+
+    def _draw(
+        self,
+        _area: Gtk.DrawingArea,
+        context: object,
+        width: int,
+        height: int,
+    ) -> None:
+        count = len(self.loads)
+        if count == 0 or width <= 0 or height <= 0:
+            return
+        chart_top = 2.0
+        chart_bottom = max(chart_top + 1.0, height - 2.0)
+        chart_height = chart_bottom - chart_top
+        slot_width = width / count
+        bar_width = max(2.0, min(18.0, slot_width * 0.54))
+
+        for index, load in enumerate(self.loads):
+            x = index * slot_width + (slot_width - bar_width) / 2.0
+            self._set_color(context, "muted", 0.34)
+            context.rectangle(x, chart_top, bar_width, chart_height)
+            context.fill()
+
+            fill_height = max(1.0, chart_height * load / 100.0)
+            self._set_color(context, "accent", 0.88)
+            context.rectangle(
+                x,
+                chart_bottom - fill_height,
+                bar_width,
+                fill_height,
+            )
+            context.fill()
+
+
+class CpuLoadPanel(Gtk.Box):
+    def __init__(self, theme: OmarchyTheme, loads: tuple[float, ...]) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_css_class("cpu-load-panel")
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title = Gtk.Label(label="CPU CORE LOAD", xalign=0)
+        title.add_css_class("cpu-load-title")
+        header.append(title)
+        header.append(Gtk.Box(hexpand=True))
+        self.summary = Gtk.Label(xalign=1)
+        self.summary.add_css_class("cpu-load-summary")
+        header.append(self.summary)
+        self.append(header)
+
+        self.chart = CpuLoadChart(theme)
+        self.append(self.chart)
+        self.update(loads)
+
+    def update(self, loads: tuple[float, ...]) -> None:
+        self.chart.update(loads)
+        if not loads:
+            self.summary.set_label("NOT AVAILABLE")
+            return
+        overall = sum(loads) / len(loads)
+        self.summary.set_label(
+            f"{len(loads)} LOGICAL PROCESSORS  ·  {overall:.0f}% OVERALL"
+        )
+
+
+class ResourceLoadChart(Gtk.DrawingArea):
+    """Compact history chart for a single percentage-based resource."""
+
+    def __init__(self, theme: OmarchyTheme, color_name: str) -> None:
+        super().__init__()
+        self.theme = theme
+        self.color_name = color_name
+        self.history: list[float] = []
+        self.set_content_height(54)
+        self.set_hexpand(True)
+        self.add_css_class("resource-load-chart")
+        self.set_draw_func(self._draw)
+
+    def update(self, reading: LoadReading | None) -> None:
+        if reading is not None:
+            self.history.append(reading.percent)
+            self.history = self.history[-48:]
+        self.queue_draw()
+
+    def _set_color(self, context: object, name: str, alpha: float) -> None:
+        color = Gdk.RGBA()
+        if not color.parse(self.theme.colors[name]):
+            color.parse("#7aa2f7")
+        context.set_source_rgba(color.red, color.green, color.blue, alpha)
+
+    def _draw(
+        self,
+        _area: Gtk.DrawingArea,
+        context: object,
+        width: int,
+        height: int,
+    ) -> None:
+        if width <= 0 or height <= 0:
+            return
+        left = 1.0
+        top = 3.0
+        right = max(left + 1.0, width - 1.0)
+        bottom = max(top + 1.0, height - 3.0)
+        chart_width = right - left
+        chart_height = bottom - top
+
+        self._set_color(context, "muted", 0.35)
+        context.set_line_width(1.0)
+        for fraction in (0.25, 0.5, 0.75):
+            y = bottom - chart_height * fraction
+            context.move_to(left, y)
+            context.line_to(right, y)
+            context.stroke()
+
+        if not self.history:
+            return
+        if len(self.history) == 1:
+            points = [(left, bottom - chart_height * self.history[0] / 100.0)]
+        else:
+            step = chart_width / (len(self.history) - 1)
+            points = [
+                (left + index * step, bottom - chart_height * load / 100.0)
+                for index, load in enumerate(self.history)
+            ]
+
+        self._set_color(context, self.color_name, 0.18)
+        context.move_to(points[0][0], bottom)
+        for point in points:
+            context.line_to(*point)
+        context.line_to(points[-1][0], bottom)
+        context.close_path()
+        context.fill()
+
+        self._set_color(context, self.color_name, 0.92)
+        context.set_line_width(2.0)
+        context.move_to(*points[0])
+        for point in points[1:]:
+            context.line_to(*point)
+        context.stroke()
+
+
+class ResourceLoadPanel(Gtk.Box):
+    def __init__(self, theme: OmarchyTheme, title: str, color_name: str) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        self.add_css_class("resource-load-panel")
+        self.set_hexpand(True)
+        self.reading: LoadReading | None = None
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_label = Gtk.Label(label=title, xalign=0)
+        title_label.add_css_class("resource-load-title")
+        header.append(title_label)
+        header.append(Gtk.Box(hexpand=True))
+        self.summary = Gtk.Label(label="NOT AVAILABLE", xalign=1)
+        self.summary.add_css_class("resource-load-summary")
+        header.append(self.summary)
+        self.append(header)
+
+        self.chart = ResourceLoadChart(theme, color_name)
+        self.append(self.chart)
+
+        self.detail = Gtk.Label(label="Not reported by system", xalign=0)
+        self.detail.add_css_class("resource-load-detail")
+        self.append(self.detail)
+
+    def update(self, reading: LoadReading | None) -> None:
+        self.reading = reading
+        self.chart.update(reading)
+        if reading is None:
+            self.summary.set_label("NOT AVAILABLE")
+            self.detail.set_label("Not reported by system")
+            return
+        self.summary.set_label(f"{reading.percent:.0f}% USED")
+        self.detail.set_label(f"{reading.used_gib:.1f} / {reading.total_gib:.1f} GiB")
 
 
 class MetricCard(Gtk.Box):
@@ -140,14 +345,11 @@ class SensorRow(Gtk.Grid):
                 f"{format_value(value, self.spec.unit)} {self.spec.unit}"
                 for value in (stats.current, stats.minimum, stats.maximum)
             )
-        # Thermal thresholds in degrees Celsius. 80 is a soft warning; 95 sits
-        # near the ~100C protection point where most CPUs begin to throttle or
-        # shut down, so it marks a critical condition.
-        if self.spec.kind == SensorKind.TEMPERATURE:
-            if stats.current >= 95:
-                self.current.add_css_class("sensor-critical")
-            elif stats.current >= 80:
-                self.current.add_css_class("sensor-hot")
+            if self.spec.kind == SensorKind.TEMPERATURE:
+                if stats.current >= 95:
+                    self.current.add_css_class("sensor-critical")
+                elif stats.current >= 80:
+                    self.current.add_css_class("sensor-hot")
         self.current.set_label(values[0])
         self.minimum.set_label(values[1])
         self.maximum.set_label(values[2])
@@ -174,6 +376,12 @@ class VitalsWindow(Adw.ApplicationWindow):
         self.set_default_size(980, 720)
         self.set_size_request(720, 520)
         self.manager = SensorManager()
+        self.cpu_load_monitor = CpuLoadMonitor()
+        self.memory_load_monitor = MemoryLoadMonitor()
+        self.vram_load_monitor = VramLoadMonitor()
+        self.cpu_loads = self.cpu_load_monitor.sample()
+        self.memory_load = self.memory_load_monitor.sample()
+        self.vram_load = self.vram_load_monitor.sample()
         self.theme = OmarchyTheme()
         self.readings = self.manager.sample()
         self.rows: dict[str, SensorRow] = {}
@@ -194,6 +402,17 @@ class VitalsWindow(Adw.ApplicationWindow):
         toolbar.add_top_bar(self._build_header())
 
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.cpu_load_panel = CpuLoadPanel(self.theme, self.cpu_loads)
+        page.append(self.cpu_load_panel)
+        resource_loads = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        resource_loads.add_css_class("resource-load-strip")
+        self.memory_load_panel = ResourceLoadPanel(self.theme, "RAM LOAD", "cyan")
+        self.memory_load_panel.update(self.memory_load)
+        resource_loads.append(self.memory_load_panel)
+        self.vram_load_panel = ResourceLoadPanel(self.theme, "VRAM LOAD", "green")
+        self.vram_load_panel.update(self.vram_load)
+        resource_loads.append(self.vram_load_panel)
+        page.append(resource_loads)
         page.append(self._build_summary())
         page.append(self._build_table())
         page.append(self._build_footer())
@@ -257,7 +476,12 @@ class VitalsWindow(Adw.ApplicationWindow):
 
         grouped: dict[str, list[SensorReading]] = defaultdict(list)
         for reading in self.readings:
-            grouped[reading.spec.section].append(reading)
+            section = (
+                "Temperatures"
+                if reading.spec.kind is SensorKind.TEMPERATURE
+                else reading.spec.section
+            )
+            grouped[section].append(reading)
         for section_name, readings in grouped.items():
             section = Section(section_name)
             contents.append(section)
@@ -288,6 +512,12 @@ class VitalsWindow(Adw.ApplicationWindow):
 
     def _on_tick(self) -> bool:
         self.theme.refresh()
+        self.cpu_loads = self.cpu_load_monitor.sample()
+        self.cpu_load_panel.update(self.cpu_loads)
+        self.memory_load = self.memory_load_monitor.sample()
+        self.memory_load_panel.update(self.memory_load)
+        self.vram_load = self.vram_load_monitor.sample()
+        self.vram_load_panel.update(self.vram_load)
         self.readings = self.manager.sample()
         self._update(self.readings)
         elapsed = int(time.monotonic() - self.session_started)
